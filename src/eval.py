@@ -73,7 +73,8 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
         else:
             img_id = train_fn
             gta_pass = ''
-        img_id = img_id.replace(',', '_')
+        if not 'gatedstereo' == dataset:
+            img_id = img_id.replace(',', '_')
 
         in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type, dataset)
 
