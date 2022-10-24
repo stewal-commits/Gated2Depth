@@ -1,11 +1,11 @@
 #!/bin/bash
 
 split="test" # or "val"
-data_dir="./data/real"
+data_dir="/media/stewal/a03d8631-ecbb-412f-bb84-b3f36c6f85a5/jbod-dense/fs1/datasets/iccv2019/real/depth_estimation"
 model_dir="./models/gated2depth_real_night/model.ckpt-8028"
 results_dir="./results/gated2depth_real_night/${split}"
-eval_files="./splits/real_${split}_night.txt"
-gpu=0
+eval_files="./splits/g2d_stamps/real_${split}_night.txt"
+gpu=1
 
 python src/train_eval.py \
     --results_dir $results_dir \
@@ -14,5 +14,7 @@ python src/train_eval.py \
 	  --base_dir $data_dir \
 	  --data_type real \
 	  --gpu $gpu \
-	  --mode eval
+	  --mode eval \
+	  --binned_metric \
+	  --dataset "g2d"
 

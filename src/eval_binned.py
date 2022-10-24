@@ -8,15 +8,16 @@ from metrics import calc_metrics, metric_str
 import LSGAN as lsgan
 import dataset_util as dsutil
 import visualize2D
+import sys
+
 
 def calc_bins(clip_min, clip_max, nb_bins):
     bins = np.linspace(clip_min, clip_max, num=nb_bins + 1)
     mean_bins = np.array([0.5 * (bins[i + 1] + bins[i]) for i in range(0, nb_bins)])
     return bins, mean_bins
 
-
 def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale=False,
-        exported_disc_path=None, use_3dconv=False, compute_metrics=False, min_distance=3., max_distance=150., show_result=False, dataset='g2d', use_filtered_lidar=False, binned_metric=False):
+        exported_disc_path=None, use_3dconv=False, compute_metrics=False, min_distance=3., max_distance=150., show_result=False, dataset='g2d', use_filtered_lidar=False):
     sess = tf.Session()
     in_image = tf.placeholder(tf.float32, [None, None, None, 3])
 
@@ -39,7 +40,9 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
         nb_bins = 21
         nb_metrics = 7
 
+
     bins, mean_bins = calc_bins(min_eval_distance, max_eval_distance, nb_bins)
+
     out_image = model['out_image']
 
     saver = tf.train.Saver()
@@ -47,21 +50,14 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
     saver.restore(sess, model_dir)
 
     per_image_metrics = []
-    per_image_metrics_binned = []
-    points = []
-
-
-    #mae = []
 
     if not os.path.isdir(results_dir):
         os.makedirs(results_dir)
 
-    # results_folder = ['gated2depth', 'gated2depth_img', 'all']
-    # results_folder = ['gated2depth_original']
-    # for result_folder in results_folder:
-    #     if not os.path.exists(os.path.join(results_dir, result_folder)):
-    #         os.makedirs(os.path.join(results_dir, result_folder))
-    # print(len(file_names))
+    results_folder = ['gated2depth', 'gated2depth_img', 'all']
+    for result_folder in results_folder:
+        if not os.path.exists(os.path.join(results_dir, result_folder)):
+            os.makedirs(os.path.join(results_dir, result_folder))
 
     for ind in range(len(file_names)):
         # get the path from image id
@@ -73,7 +69,6 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
         else:
             img_id = train_fn
             gta_pass = ''
-        img_id = img_id.replace(',', '_')
 
         in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type, dataset)
 
@@ -84,46 +79,35 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
         gt_patch, _ = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, raw_values_only=True, min_distance=min_distance, max_distance=max_distance, dataset=dataset, use_filtered_lidar=use_filtered_lidar)
         
         if compute_metrics:
-            #if data_type != 'real':
-                #curr_mae = np.mean(np.abs(output - gt_patch), dtype=np.float64)
             if np.sum(gt_patch > 0.0) > 0.:
-                curr_metrics = calc_metrics(output[0, :, :, 0], gt_patch, min_distance=min_eval_distance,max_distance=max_eval_distance)
+                results = np.vstack([output[:,:,:,0], np.expand_dims(gt_patch, axis=0)])
+                if nb_bins == 1:
+                    inds = np.zeros((results[0].shape), dtype=int)
+                else:
+                    inds = np.digitize(results[1, :], bins)
+
+                error_binned = np.zeros((len(bins) - 1, nb_metrics))
+                for i, bin in enumerate(bins[:-1]):
+                    try:
+                        metrics = calc_metrics(results[0, inds == i], results[1, inds == i],min_distance=min_eval_distance, max_distance=max_eval_distance)
+                        error_binned[i, :] = metrics
+                    except ValueError:
+                        error_binned[i, :] = np.nan
+
+                mean_error_binned = np.zeros((nb_metrics,))
+                for i in range(0, nb_metrics):
+                    mean_error_binned[i] = np.mean(error_binned[~np.isnan(error_binned[:, i]), i])
+
+                # error_binned = np.hstack([mean_bins.reshape((-1, 1)), error_binned])
+                # mean_error_binned = np.hstack([np.zeros((1,)), mean_error_binned])
+                curr_metrics = mean_error_binned
                 per_image_metrics.append(curr_metrics)
-                    #mae.append(curr_mae)
-
-                if binned_metric:
-                    results = np.vstack([output[:, :, :, 0], np.expand_dims(gt_patch, axis=0)])
-                    if nb_bins == 1:
-                        inds = np.zeros((results[0].shape), dtype=int)
-                    else:
-                        inds = np.digitize(results[1, :], bins)
-
-                    error_binned = np.zeros((len(bins) - 1, nb_metrics))
-                    point = np.zeros((len(bins)-1))
-                    for i, bin in enumerate(bins[:-1]):
-                        try:
-                            metrics = calc_metrics(results[0, inds == i+1], results[1, inds == i+1], min_distance=min_eval_distance, max_distance=max_eval_distance)
-                            error_binned[i, :] = metrics
-                            point[i] = np.sum(results[0,inds == i+1] != 0)
-                        except ValueError:
-                            error_binned[i, :] = np.nan
-
-                    points.append(point)
-                    mean_error_binned = np.zeros((nb_metrics,))
-                    for i in range(0, nb_metrics):
-                        mean_error_binned[i] = np.mean(error_binned[~np.isnan(error_binned[:, i]), i])
-
-                    error_binned = np.hstack([mean_bins.reshape((-1, 1)), error_binned])
-                    mean_error_binned = np.hstack([np.zeros((1,)), mean_error_binned])
-                    curr_metrics_binned = np.vstack([mean_error_binned, error_binned])
-                    per_image_metrics_binned.append(curr_metrics_binned)
-
-        if not os.path.exists(os.path.join(results_dir, 'gated2depth_original')):
-            os.mkdir(os.path.join(results_dir, 'gated2depth_original'))
 
 
-        np.savez_compressed(os.path.join(results_dir, 'gated2depth_original', '{}'.format(img_id)), output)
 
+
+        # np.savez_compressed(os.path.join(results_dir, 'gated2depth', '{}'.format(img_id)), output)
+        #
         # #depth_lidar1, _ = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, raw_values_only=True, min_distance=min_distance, max_distance=max_distance)
         #
         # if data_type != 'real':
@@ -156,14 +140,15 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
         # input_output[scaled_input.shape[0] + depth_map_color.shape[0]:, :, :] = depth_lidar1_color
         # cv2.imwrite(os.path.join(results_dir, 'gated2depth_img', '{}.jpg'.format(img_id)), depth_map_color.astype(np.uint8))
         # cv2.imwrite(os.path.join(results_dir, 'all', '{}.jpg'.format(img_id)), input_output.astype(np.uint8))
-        #
-        # if show_result:
-        #     import matplotlib.pyplot as plt
-        #     plt.imshow(cv2.cvtColor(input_output.astype(np.uint8), cv2.COLOR_BGR2RGB))
-        #     plt.show()
+
+        if show_result:
+            import matplotlib.pyplot as plt
+            plt.imshow(cv2.cvtColor(input_output.astype(np.uint8), cv2.COLOR_BGR2RGB))
+            plt.show()
 
     if compute_metrics:
-        print(np.sum(np.asarray(points), axis=0))
+        print(len(per_image_metrics))
+        print(per_image_metrics[0].shape)
         res = np.mean(per_image_metrics, axis=0)
         res_str = ''
         for i in range(res.shape[0]):
@@ -174,18 +159,4 @@ def run(results_dir, model_dir, base_dir, file_names, data_type, use_multi_scale
         with open(os.path.join(results_dir, 'results.tex'), 'w') as f:
             f.write(' & '.join(metric_str) + '\n')
             f.write(' & '.join(['{:.2f}'.format(r) for r in res]))
-        res = np.zeros_like(per_image_metrics_binned[0])
-        if binned_metric:
-            per_image_metrics_binned = np.asarray(per_image_metrics_binned)
-            for i in range(0, res.shape[0]):
-                for j in range(0, res.shape[1]):
-                    res[i,j] = np.mean(per_image_metrics_binned[:,i,j][~np.isnan(per_image_metrics_binned[:,i,j])])
-        res = np.vstack([np.hstack([np.zeros((1,)), np.mean(res[1:, 1:][~np.isnan(res[1:, 1]), :], axis=0)]), res])
-        np.savez(os.path.join(results_dir, 'results_binned.npz'), res)
-        res = np.around(res, decimals=2)
-        np.set_printoptions(suppress=True)
 
-        print(res)
-        np.savetxt(os.path.join(results_dir, 'results_binned.txt'), res, fmt='%1.2f')
-        np.savetxt(os.path.join(results_dir, 'results_binned_mean.tex'), res[0:2,1:].reshape(2,-1), delimiter=' & ',fmt='%1.2f')
-        np.savetxt(os.path.join(results_dir, 'results_binned.tex'), np.transpose(np.nan_to_num(res[2:,:])), delimiter=' & ',fmt='%1.2f')

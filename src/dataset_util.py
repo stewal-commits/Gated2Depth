@@ -5,16 +5,25 @@ import numpy as np
 
 crop_size = 150
 
+mapx = np.load('/scratch/fs1/stewal/repos/Gated2Depth/src/mapx.npz')['arr_0']
+mapy = np.load('/scratch/fs1/stewal/repos/Gated2Depth/src/mapy.npz')['arr_0']
 
-def read_gated_image(base_dir, gta_pass, img_id, data_type, num_bits=10, scale_images=False,
+
+def read_gated_image(base_dir, gta_pass, img_id, data_type, dataset, num_bits=10, scale_images=False,
                      scaled_img_width=None, scaled_img_height=None,
                      normalize_images=False):
     gated_imgs = []
     normalizer = 2 ** num_bits - 1.
 
     for gate_id in range(3):
-        gate_dir = os.path.join(base_dir, gta_pass, 'gated%d_10bit' % gate_id)
-        img = cv2.imread(os.path.join(gate_dir, img_id + '.png'), cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+        if dataset == 'g2d':
+            gate_dir = os.path.join(base_dir, gta_pass, 'gated%d_10bit' % gate_id)
+            img = cv2.imread(os.path.join(gate_dir, img_id + '.png'), cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+        elif dataset == 'stf':
+            gate_dir = os.path.join(base_dir, gta_pass, 'gated%d' % gate_id)
+            img = cv2.imread(os.path.join(gate_dir, img_id + '.tiff'), cv2.IMREAD_UNCHANGED)
+            img = cv2.remap(img, mapx, mapy, cv2.INTER_AREA)
+
         if data_type == 'real':
             img = img[crop_size:(img.shape[0] - crop_size), crop_size:(img.shape[1] - crop_size)]
             img = img.copy()
@@ -32,11 +41,19 @@ def read_gated_image(base_dir, gta_pass, img_id, data_type, num_bits=10, scale_i
     return np.expand_dims(img, axis=0)
 
 
-def read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance, max_distance, scale_images=False,
+def read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance, max_distance, dataset, scale_images=False,
                   scaled_img_width=None,
-                  scaled_img_height=None, raw_values_only=False):
+                  scaled_img_height=None, raw_values_only=False, use_filtered_lidar=False):
     if data_type == 'real':
-        depth_lidar1 = np.load(os.path.join(base_dir, gta_pass, "depth_hdl64_gated_compressed", img_id + '.npz'))['arr_0']
+        if dataset == 'g2d':
+            depth_lidar1 = np.load(os.path.join(base_dir, gta_pass, "depth_hdl64_gated_compressed", img_id + '.npz'))['arr_0']
+        elif dataset == 'stf':
+            if not use_filtered_lidar:
+                depth_lidar1 = np.load(os.path.join(base_dir, gta_pass, 'lidar_hdl64_strongest_gated', img_id + '.npz'))['arr_0']
+            else:
+                depth_lidar1 = np.load(os.path.join(base_dir, gta_pass, 'lidar_hdl64_strongest_filtered_gated', img_id + '.npz'))['arr_0']
+
+
         depth_lidar1 = depth_lidar1[crop_size:(depth_lidar1.shape[0] - crop_size),
                        crop_size: (depth_lidar1.shape[1] - crop_size)]
         if raw_values_only:

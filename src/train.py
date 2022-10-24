@@ -10,7 +10,7 @@ import dataset_util as dsutil
 def run(results_dir, model_dir, base_dir, train_file_names, eval_file_names, num_epochs, data_type,
         use_multi_scale=False,
         exported_disc_path=None, use_3dconv=False, smooth_weight=0.5, lrate=1e-4, adv_weight=0.0001, min_distance=3.,
-        max_distance=150.):
+        max_distance=150., dataset='g2d', use_filtered_lidar=False):
     train_fns = train_file_names
     val_fns = eval_file_names
 
@@ -73,7 +73,7 @@ def run(results_dir, model_dir, base_dir, train_file_names, eval_file_names, num
         loss_sum = tf.summary.merge([G_loss_sum, D_loss_sum, l1_loss_sum, grad_loss_sum,
                                      adv_loss_sum, D_real_loss_sum, D_fake_loss_sum])
 
-    saver = tf.train.Saver(max_to_keep=2)
+    saver = tf.train.Saver(max_to_keep=0)
     sess.run(tf.global_variables_initializer())
     ckpt = tf.train.get_checkpoint_state(model_dir)
 
@@ -94,9 +94,9 @@ def run(results_dir, model_dir, base_dir, train_file_names, eval_file_names, num
             img_id = train_fn
             gta_pass = ''
 
-            in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type)
+            in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type, dataset)
             gt_patch, lidar_mask = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance,
-                                                        max_distance)
+                                                        max_distance, dataset=dataset, use_filtered_lidar=use_filtered_lidar)
             cnt += 1
             input_patch = in_img
             gt_patch = gt_patch
@@ -123,16 +123,16 @@ def run(results_dir, model_dir, base_dir, train_file_names, eval_file_names, num
                 gta_pass = ''
 
                 if data_type == 'real':
-                    in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type)
-                    gt_patch, lidar_mask = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance, max_distance)
+                    in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type, dataset=dataset)
+                    gt_patch, lidar_mask = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance, max_distance, dataset=dataset, use_filtered_lidar=use_filtered_lidar)
                     input_patch = in_img
                     out_for_disc = sess.run(out_image, feed_dict={in_image: input_patch})
                     val_loss = sess.run(loss_sum, feed_dict={in_image: input_patch, gt_image: gt_patch,
                                                              gt_mask: lidar_mask, disc_in: out_for_disc})
 
                 else:
-                    in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type)
-                    gt_patch, _ = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance, max_distance)
+                    in_img = dsutil.read_gated_image(base_dir, gta_pass, img_id, data_type, dataset=dataset)
+                    gt_patch, _ = dsutil.read_gt_image(base_dir, gta_pass, img_id, data_type, min_distance, max_distance, dataset=dataset, use_filtered_lidar=use_filtered_lidar)
                     input_patch = in_img
                     out_for_disc = sess.run(out_image, feed_dict={in_image: input_patch})
                     val_loss = sess.run(loss_sum,
@@ -158,4 +158,4 @@ def run(results_dir, model_dir, base_dir, train_file_names, eval_file_names, num
                                                        disc_in: out_for_disc})
             print("%d %d Loss=%.3f" % (epoch, cnt, G_current))
 
-        saver.save(sess, os.path.join(model_dir, 'model.ckpt'), global_step=global_cnt)
+        saver.save(sess, os.path.join(results_dir, 'model.ckpt'), global_step=global_cnt)

@@ -72,8 +72,8 @@ def loss_l2(D_logits_real, D_logits_fake, input, g_output, targets, data_type, g
             avg_mask2 = slim.avg_pool2d(gt_mask, [2, 2], stride=2, scope='avg_mask2')
             avg_mask3 = slim.avg_pool2d(gt_mask, [4, 4], stride=4, scope='avg_mask3')
 
-            targets2 = tf.div_no_nan(targets2, avg_mask2)
-            targets3 = tf.div_no_nan(targets3, avg_mask3)
+            targets2 = tf.multiply(targets2, avg_mask2)
+            targets3 = tf.multiply(targets3, avg_mask3)
 
         new_targets.append(targets2)
         new_targets.append(targets3)
